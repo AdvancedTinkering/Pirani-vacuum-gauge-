@@ -1,0 +1,431 @@
+#include <Elegoo_GFX.h>
+#include <Elegoo_TFTLCD.h>
+#include <TouchScreen.h>
+#include <Adafruit_ADS1X15.h>
+#include <LiquidCrystal.h>
+
+#define TS_MINX 170
+#define TS_MINY 185
+#define TS_MAXX 900
+#define TS_MAXY 940
+#define YP A3                             // must be an analog pin, use "An" notation!
+#define XM A2                             // must be an analog pin, use "An" notation!
+#define YM 9                              // can be a digital pin
+#define XP 8                              // can be a digital pin
+
+TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
+
+Adafruit_ADS1115 ads;
+
+int rs = 23;
+int en = 25;
+int d4 = 27;
+int d5 = 29;
+int d6 = 31;
+int d7 = 33;
+
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+float truevoltage;
+float pressure_mbar;
+float pressure_Torr;
+float pressure_Pascal;
+unsigned long prevMillis = 0;
+unsigned long lastPress = 0;
+unsigned long timeElapsed = 0;
+unsigned long startTime = 0;
+int mode = 1;
+unsigned long mbar_max = 1500;
+unsigned long Torr_max = 1125;
+unsigned long Pascal_max = 150000;
+
+#define LCD_CS A3
+#define LCD_CD A2
+#define LCD_WR A1
+#define LCD_RD A0
+#define LCD_RESET A4
+
+#define GREY    0x8410
+#define BLACK   0x0000
+#define BLUE    0x001F
+#define RED     0xF800
+#define GREEN   0x07E0
+#define CYAN    0x07FF
+#define MAGENTA 0xF81F
+#define YELLOW  0xFFE0
+#define WHITE   0xFFFF
+
+// Change colors according to requirements
+uint32_t bcdColor = BLACK;    // Color of background
+uint32_t axisColor = WHITE;   // Color of X-Y axis
+uint32_t graphColor = BLACK;  // Color of Graph Background
+uint32_t textColor = WHITE;   // Text Color
+uint32_t mbar_Color = YELLOW; // mbar graph color
+uint32_t Torr_Color = GREEN;  // Torr graph color
+uint32_t pascal_Color = RED;  // pascal graph color
+
+Elegoo_TFTLCD tft(LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET);
+
+int incrementation = 24;
+
+int scale1 = 1;
+int scale2 = 2;
+int scale4 = 4;
+int scale8 = 8;
+
+void setup() {
+  Serial.begin(9600);
+  Serial.println("Hello!");
+
+  Serial.println("Getting single-ended readings from AIN0..3");
+  Serial.println("ADC Range: +/- 6.144V (1 bit = 3mV/ADS1015, 0.1875mV/ADS1115)");
+  lcd.begin(16, 2);
+  // The ADC input range (or gain) can be changed via the following
+  // functions, but be careful never to exceed VDD +0.3V max, or to
+  // exceed the upper and lower limits if you adjust the input range!
+  // Setting these values incorrectly may destroy your ADC!
+  //                                                                ADS1015  ADS1115
+  //                                                                -------  -------
+  // ads.setGain(GAIN_TWOTHIRDS);  // 2/3x gain +/- 6.144V  1 bit = 3mV      0.1875mV (default)
+  // ads.setGain(GAIN_ONE);        // 1x gain   +/- 4.096V  1 bit = 2mV      0.125mV
+  // ads.setGain(GAIN_TWO);        // 2x gain   +/- 2.048V  1 bit = 1mV      0.0625mV
+  // ads.setGain(GAIN_FOUR);       // 4x gain   +/- 1.024V  1 bit = 0.5mV    0.03125mV
+  // ads.setGain(GAIN_EIGHT);      // 8x gain   +/- 0.512V  1 bit = 0.25mV   0.015625mV
+  // ads.setGain(GAIN_SIXTEEN);    // 16x gain  +/- 0.256V  1 bit = 0.125mV  0.0078125mV
+  ads.setGain(GAIN_TWOTHIRDS);
+  if (!ads.begin()) {
+    Serial.println("Failed to initialize ADS.");
+    while (1);
+  }
+
+  tft.reset();
+  tft.begin(0x9341);  // change to 0x9341
+  tft.fillScreen(bcdColor);
+  tft.setRotation(1);
+  tft.fillRect(23, 14, 269, 146, graphColor);// Graph
+  tft.fillRect(20, 15, 3, 145, axisColor);   // Axis
+  tft.fillRect(20, 160, 272, 3, axisColor);  // Axis
+
+  tft.setCursor(30, 190);
+  tft.setTextColor(mbar_Color);
+  tft.setTextSize(2);
+  tft.println("mbar");
+  tft.drawRect(15, 185, 80, 30, axisColor);
+
+  tft.setCursor(125, 190);
+  tft.setTextColor(Torr_Color);
+  tft.setTextSize(2);
+  tft.println("Torr");
+  tft.drawRect(110, 185, 80, 30, axisColor);
+
+  tft.setCursor(212, 190);
+  tft.setTextColor(pascal_Color);
+  tft.setTextSize(2);
+  tft.println("Pascal");
+  tft.drawRect(207, 185, 80, 30, axisColor);
+
+  tft.drawLine(33, 160, 33, 166, axisColor);
+  tft.drawLine(43, 160, 43, 166, axisColor);
+  tft.drawLine(53, 160, 53, 166, axisColor);
+  tft.drawLine(63, 160, 63, 166, axisColor);
+  tft.drawLine(73, 160, 73, 166, axisColor);
+  tft.drawLine(83, 160, 83, 166, axisColor);
+  tft.drawLine(93, 160, 93, 166, axisColor);
+  tft.drawLine(103, 160, 103, 166, axisColor);
+  tft.drawLine(113, 160, 113, 166, axisColor);
+  tft.drawLine(123, 160, 123, 166, axisColor);
+  tft.drawLine(133, 160, 133, 166, axisColor);
+  tft.drawLine(143, 160, 143, 166, axisColor);
+  tft.drawLine(153, 160, 153, 166, axisColor);
+  tft.drawLine(163, 160, 163, 166, axisColor);
+  tft.drawLine(173, 160, 173, 166, axisColor);
+  tft.drawLine(183, 160, 183, 166, axisColor);
+  tft.drawLine(193, 160, 193, 166, axisColor);
+  tft.drawLine(203, 160, 203, 166, axisColor);
+  tft.drawLine(213, 160, 213, 166, axisColor);
+  tft.drawLine(223, 160, 223, 166, axisColor);
+  tft.drawLine(233, 160, 233, 166, axisColor);
+  tft.drawLine(243, 160, 243, 166, axisColor);
+  tft.drawLine(253, 160, 253, 166, axisColor);
+  tft.drawLine(263, 160, 263, 166, axisColor);
+  tft.drawLine(273, 160, 273, 166, axisColor);
+  tft.drawLine(283, 160, 283, 166, axisColor);
+  tft.drawLine(17, 87, 20, 87, axisColor);
+  tft.drawLine(17, 15, 20, 15, axisColor);
+
+  tft.setCursor(10, 3);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println("mbar (max : 1500) ");
+
+  tft.setCursor(188, 171);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println("Time (in seconds)");
+
+  tft.setCursor(10, 164);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println("0");
+
+  tft.setCursor(31, 170);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println(scale1);
+
+  tft.setCursor(41, 170);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println(scale2);
+
+  tft.setCursor(61, 170);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println(scale4);
+
+  tft.setCursor(101, 170);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println(scale8);
+
+  pinMode(13, OUTPUT);
+  startTime = millis();
+}
+
+void loop() {
+
+  read_ADS1115();
+  readTouch();
+
+  if (mode == 1) {
+    int valab = map(pressure_mbar, 0, mbar_max, 159, 15);
+    tft.fillCircle(incrementation, valab, 1, mbar_Color);  // (x-axis, y-axis, radius, Color)
+  }
+  else if (mode == 2) {
+    int valbb = map(pressure_Torr, 0, Torr_max, 159, 15);
+    tft.fillCircle(incrementation, valbb, 1, Torr_Color);
+  }
+  else if (mode == 3) {
+    int valcb = map(pressure_Pascal, 0, Pascal_max, 159, 15);
+    tft.fillCircle(incrementation, valcb, 1, pascal_Color);
+  }
+
+  incrementation++;
+
+  delay(100);
+
+  if (scale1 == 27) {
+    tft.fillRect(3, 120, 16, 60, bcdColor);
+  }
+  if (incrementation > 282) {
+    tft.fillRect(10, 166, 150, 12, bcdColor);
+    scale1 = scale1 + 26;
+    scale2 = scale2 + 26;
+    scale4 = scale4 + 26;
+    scale8 = scale8 + 26;
+    tft.setCursor(26, 170);
+    tft.setTextColor(textColor);
+    tft.setTextSize(1);
+    tft.println(scale1);
+    tft.setCursor(41, 170);
+    if (scale2 > 10) {
+      tft.setCursor(39, 170);
+    }
+    if (scale2 < 100) {
+      tft.setTextColor(textColor);
+      tft.setTextSize(1);
+      tft.println(scale2);
+    }
+    tft.setCursor(61, 170);
+    tft.setTextColor(textColor);
+    tft.setTextSize(1);
+    tft.println(scale4);
+    tft.setCursor(101, 170);
+    tft.setTextColor(textColor);
+    tft.setTextSize(1);
+    tft.println(scale8);
+    tft.fillRect(23, 14, 269, 146, graphColor);// Graph
+    tft.fillRect(20, 15, 3, 145, axisColor);   // X-axis
+    tft.fillRect(20, 160, 272, 3, axisColor);  // Y-axis
+
+    incrementation = 24;
+
+    mbar_max = int(pressure_mbar) * 2;
+    Torr_max = int(pressure_Torr) * 2;
+    Pascal_max = int(pressure_Pascal) * 2;
+    printMaxValue();
+  }
+
+}
+
+void read_ADS1115() {
+  int16_t adc0, adc1, adc2, adc3;
+  float volts0, volts1, volts2, volts3;
+  float truepressure;
+  adc0 = ads.readADC_SingleEnded(0);
+  volts0 = ads.computeVolts(adc0);
+
+  //Serial.print("AIN0: "); Serial.print(adc0); Serial.print("  "); Serial.print(volts0); Serial.println("V");
+
+  truevoltage = volts0 * 2;
+
+  pressure_mbar = pow(10, (truevoltage - 5.5));
+  pressure_Torr = pow(10, (truevoltage - 5.625));
+  pressure_Pascal = pow(10, (truevoltage - 3.5));
+
+  if (millis() - prevMillis >= 1000) { // Update every 1 second
+    prevMillis = millis();
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(pressure_mbar);
+    lcd.setCursor(10, 0);
+    lcd.print("mbar");
+
+    lcd.setCursor(0, 1);
+    lcd.print(pressure_Pascal);
+    lcd.setCursor(10, 1);
+    lcd.print("Pascal");
+
+    timeElapsed = (millis() - startTime) / 1000;
+    Serial.print("Pressure (mbar): ");
+    Serial.println(pressure_mbar);
+    Serial.print("Time elapsed: ");
+    Serial.println(timeElapsed);
+
+    if (mode == 1) {
+      String text = "Value: " + String(pressure_mbar);
+      tft.fillRect(150, 0, 100, 10, bcdColor);
+      tft.setCursor(160, 3);
+      tft.setTextColor(textColor);
+      tft.setTextSize(1);
+      tft.println(text);
+    }
+    else if (mode == 2) {
+      String text = "Value: " + String(pressure_Torr);
+      tft.fillRect(150, 0, 100, 10, bcdColor);
+      tft.setCursor(160, 3);
+      tft.setTextColor(textColor);
+      tft.setTextSize(1);
+      tft.println(text);
+    }
+    else if (mode == 3) {
+      String text = "Value: " + String(pressure_Pascal);
+      tft.fillRect(150, 0, 100, 10, bcdColor);
+      tft.setCursor(160, 3);
+      tft.setTextColor(textColor);
+      tft.setTextSize(1);
+      tft.println(text);
+    }
+  }
+}
+
+void printScale() {
+  tft.fillRect(23, 14, 269, 146, graphColor); // Graph   // (x-axis, y-axis, length, height, Color)
+  tft.fillRect(10, 166, 150, 12, bcdColor); // Scale
+  tft.fillRect(20, 15, 3, 145, axisColor);   // X-axis
+  tft.fillRect(20, 160, 272, 3, axisColor);  // Y-axis
+
+  printMaxValue();
+
+  incrementation = 24;
+  scale1 = 1;
+  scale2 = 2;
+  scale4 = 4;
+  scale8 = 8;
+
+  tft.setCursor(10, 164);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println("0");
+
+  tft.setCursor(31, 170);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println(scale1);
+
+  tft.setCursor(41, 170);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println(scale2);
+
+  tft.setCursor(61, 170);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println(scale4);
+
+  tft.setCursor(101, 170);
+  tft.setTextColor(textColor);
+  tft.setTextSize(1);
+  tft.println(scale8);
+
+}
+
+void printMaxValue() {
+
+  if (mode == 1) {
+    String text = "mbar (max : " + String(mbar_max) + ") ";
+    tft.fillRect(0, 0, 150, 10, bcdColor);
+    tft.setCursor(10, 3);
+    tft.setTextColor(textColor);
+    tft.setTextSize(1);
+    tft.println(text);
+  }
+  else if (mode == 2) {
+    String text = "Torr (max : " + String(Torr_max) + ") ";
+    tft.fillRect(0, 0, 150, 10, bcdColor);
+    tft.setCursor(10, 3);
+    tft.setTextColor(textColor);
+    tft.setTextSize(1);
+    tft.println(text);
+  }
+  else if (mode == 3) {
+    String text = "Pascal (max : " + String(Pascal_max) + ") ";
+    tft.fillRect(0, 0, 150, 10, bcdColor);
+    tft.setCursor(10, 3);
+    tft.setTextColor(textColor);
+    tft.setTextSize(1);
+    tft.println(text);
+  }
+}
+
+void readTouch() {
+  digitalWrite(13, HIGH);
+  TSPoint p = ts.getPoint();
+  digitalWrite(13, LOW);
+
+  pinMode(XM, OUTPUT);
+  pinMode(YP, OUTPUT);
+
+  if (p.z > 10 && p.z < 1000)             // Check touch validity
+  {
+    Serial.println("Touch detected");
+    //Serial.print("p.x = "); Serial.print(p.x); Serial.print(", p.y = "); Serial.println(p.y);
+    //Serial.print("Height = "); Serial.print(tft.height()); Serial.print(", Width = "); Serial.println(tft.width());
+
+    p.x = map(p.x, TS_MINX, TS_MAXX, tft.height(), 0);
+    p.y = map(p.y, TS_MINY, TS_MAXY, tft.width(), 0);
+
+    //Serial.print("mapped p.x = "); Serial.print(p.x); Serial.print(", p.y = "); Serial.println(p.y);
+
+    if (p.x > 190 && p.x < 230)
+    {
+      if (p.y > 15 && p.y < 95) {  // Touched in mbar box
+        Serial.println("Unit = mbar");
+        mode = 1;
+        printScale();
+      }
+      else if (p.y > 105 && p.y < 195) {  // Touched in Torr box
+        Serial.println("Unit = Torr");
+        mode = 2;
+        printScale();
+      }
+      else if (p.y > 207 && p.y < 295) {  // Touched in Pascal box
+        Serial.println("Unit = Pascal");
+        mode = 3;
+        printScale();
+      }
+    }
+  }
+
+}
